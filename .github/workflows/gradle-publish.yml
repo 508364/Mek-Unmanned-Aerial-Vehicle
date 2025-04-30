@@ -1,0 +1,113 @@
+name: Smart Forge Mod Builder
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+    inputs:
+      skip_tests:
+        description: 'Skip tests'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  GRADLE_OPTS: "-Dorg.gradle.daemon=false -Xmx2g"
+
+jobs:
+  smart-build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        java: [17]
+        exclude:
+          - os: windows-latest
+            java: 8
+
+    steps:
+    # 步骤1：代码检出（使用最新稳定版）
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    # 步骤2：设置JDK（使用最新稳定版）
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        java-version: ${{ matrix.java }}
+        distribution: 'temurin'
+        cache: 'gradle'
+
+    # 步骤3：缓存优化（使用cache@v4）
+    - name: Cache Gradle
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+          ~/.gradle/daemon
+        key: ${{ runner.os }}-gradle-${{ hashFiles('**/build.gradle', '**/gradle.properties', '**/settings.gradle') }}
+        restore-keys: |
+          ${{ runner.os }}-gradle-
+
+    # 步骤4：构建执行
+    - name: Build with Gradle
+      shell: bash
+      run: |
+        # 设置构建参数
+        BUILD_ARGS="--no-daemon --stacktrace --warning-mode all"
+        
+        # 条件参数
+        [ "${{ inputs.skip_tests }}" = "true" ] && BUILD_ARGS="$BUILD_ARGS -x test"
+        [ -f "gradlew" ] || gradle wrapper --gradle-version 8.5
+
+        # 执行构建
+        if [[ "$RUNNER_OS" == "Windows" ]]; then
+          ./gradlew.bat build $BUILD_ARGS
+        else
+          chmod +x gradlew
+          ./gradlew build $BUILD_ARGS
+        fi
+
+        # 验证输出
+        if ! ls build/libs/*.jar >/dev/null 2>&1; then
+          echo "::error::Build failed - No JAR files produced"
+          exit 1
+        fi
+
+    # 步骤5：上传产物（使用最新稳定版）
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: mod-${{ runner.os }}-${{ matrix.java }}
+        path: |
+          build/libs/*.jar
+          build/libs/*-sources.jar
+        if-no-files-found: error
+        retention-days: 7
+        compression-level: 9
+
+    # 步骤6：自动发布（标签触发时）
+    - name: Create Release
+      if: success() && startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v2
+      with:
+        files: build/libs/*.jar
+        tag_name: v${{ needs.smart-build.outputs.version }}
+        body: |
+          ### Build Information
+          **Platform:** ${{ runner.os }}  
+          **Java:** ${{ matrix.java }}  
+          **Gradle Cache Key:** `${{ runner.os }}-gradle-${{ hashFiles('**/build.gradle') }}`  
+          **Build Time:** ${{ steps.get-date.outputs.date }}
+
+          ### Mod Details
+          ```toml
+          modId = "${{ needs.smart-build.outputs.modid }}"
+          version = "${{ needs.smart-build.outputs.version }}"
+          ```
