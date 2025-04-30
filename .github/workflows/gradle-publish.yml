@@ -29,7 +29,7 @@ jobs:
     
     steps:
     # 步骤1：检出代码
-    - name: Checkout
+    - name: Checkout repository
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
@@ -53,21 +53,38 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-gradle-
 
-    # 步骤4：解析mod信息
-    - name: Parse Mod Info
-      id: mod-info
+    # 步骤4：验证项目结构
+    - name: Validate project structure
       shell: bash
       run: |
-        MODID=$(grep -Po 'modId\s*=\s*"\K[^"]+' src/main/resources/META-INF/mods.toml || echo "unnamed")
-        VERSION=$(grep -Po 'version\s*=\s*"\K[^"]+' src/main/resources/META-INF/mods.toml || echo "0.0.0")
-        echo "modid=$MODID" >> $GITHUB_OUTPUT
-        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        if [ ! -f "build.gradle" ]; then
+          echo "::error::Missing build.gradle file"
+          exit 1
+        fi
+        
+        if [ ! -d "src/main/resources/META-INF" ]; then
+          echo "::warning::Missing META-INF directory, creating basic mod structure..."
+          mkdir -p src/main/resources/META-INF
+          echo "modLoader=\"javafml\"" > src/main/resources/META-INF/mods.toml
+          echo "loaderVersion=\"[40,)\"" >> src/main/resources/META-INF/mods.toml
+          echo "license=\"All rights reserved\"" >> src/main/resources/META-INF/mods.toml
+          echo "[[mods]]" >> src/main/resources/META-INF/mods.toml
+          echo "modId=\"examplemod\"" >> src/main/resources/META-INF/mods.toml
+          echo "version=\"1.0.0\"" >> src/main/resources/META-INF/mods.toml
+        fi
 
     # 步骤5：执行构建
-    - name: Build Mod
+    - name: Run Gradle build
       shell: bash
       run: |
-        # 确保gradlew可执行
+        # 确保gradlew存在
+        if [ ! -f "gradlew" ]; then
+          echo "::group::Initializing Gradle Wrapper"
+          gradle wrapper --gradle-version 8.5
+          echo "::endgroup::"
+        fi
+
+        # 设置执行权限
         if [[ "$RUNNER_OS" != "Windows" ]]; then
           chmod +x gradlew
         fi
@@ -76,36 +93,40 @@ jobs:
         BUILD_CMD="./gradlew"
         [[ "$RUNNER_OS" == "Windows" ]] && BUILD_CMD="./gradlew.bat"
         
+        echo "::group::Building Mod"
         $BUILD_CMD build \
           --no-daemon \
           --stacktrace \
           ${{ inputs.skip_tests && '-x test' || '' }}
+        echo "::endgroup::"
 
         # 验证输出
         if ! ls build/libs/*.jar >/dev/null 2>&1; then
           echo "::error::Build failed - No JAR files produced"
+          echo "::group::Build directory contents"
+          ls -lR build/
+          echo "::endgroup::"
           exit 1
         fi
 
     # 步骤6：上传构建产物
-    - name: Upload Artifact
+    - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ steps.mod-info.outputs.modid }}-${{ steps.mod-info.outputs.version }}-${{ runner.os }}
+        name: mod-${{ runner.os }}-${{ matrix.java }}
         path: build/libs/*.jar
         if-no-files-found: error
         retention-days: 7
 
-    # 步骤7：发布到GitHub Releases
+    # 步骤7：发布到GitHub Releases（仅标签触发）
     - name: Create Release
       if: success() && startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v2
       with:
         files: build/libs/*.jar
-        tag_name: v${{ steps.mod-info.outputs.version }}
+        tag_name: v${{ steps.mod-info.outputs.version || '1.0.0' }}
         body: |
-          ### Build Summary
-          **Mod ID:** `${{ steps.mod-info.outputs.modid }}`  
-          **Version:** ${{ steps.mod-info.outputs.version }}  
-          **Built on:** ${{ runner.os }}  
-          **Java Version:** ${{ matrix.java }}
+          ### Build Information
+          **Platform:** ${{ runner.os }}  
+          **Java Version:** ${{ matrix.java }}  
+          **Build Time:** $(date -u +'%Y-%m-%d %H:%M:%S')
