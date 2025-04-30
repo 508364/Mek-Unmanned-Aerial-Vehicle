@@ -1,0 +1,9 @@
+{
+  "texture_size": [64, 64],
+  "texture_data": {
+    "drone": {
+      "uv": [0, 0],
+      "size": [64, 64]
+    }
+  }
+}

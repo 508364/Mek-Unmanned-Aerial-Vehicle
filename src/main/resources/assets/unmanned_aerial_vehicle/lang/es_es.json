@@ -1,0 +1,11 @@
+{
+    "item.unmanned_aerial_vehicle.example_item": "Artículo de ejemplo",
+    "item.unmanned_aerial_vehicle.drone": "Dron",
+    "item.unmanned_aerial_vehicle.battery": "Batería",
+    "item.unmanned_aerial_vehicle.remote_controller": "Control remoto",
+    "item.unmanned_aerial_vehicle.console": "Consola",
+    "block.unmanned_aerial_vehicle.example_block": "Bloque de ejemplo",
+    "block.unmanned_aerial_vehicle.charging_station": "Estación de carga",
+    "block.unmanned_aerial_vehicle.return_station": "Estación de retorno",
+    "message.unmanned_aerial_vehicle.setup": "Módulo de vehículo aéreo no tripulado configurado"
+}

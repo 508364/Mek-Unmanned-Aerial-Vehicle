@@ -1,0 +1,10 @@
+{
+  "parent": "geckolib:geo/entity",
+  "textures": {
+    "default": "unmanned_aerial_vehicle:entity/drone"
+  },
+  "geo": "unmanned_aerial_vehicle:geo/entity/drone.geo.json",
+  "animations": {
+    "idle": "unmanned_aerial_vehicle:animation/entity/drone.animation.json"
+  }
+}

@@ -1,0 +1,11 @@
+{
+    "item.unmanned_aerial_vehicle.example_item": "Example Item",
+    "item.unmanned_aerial_vehicle.drone": "Drone",
+    "item.unmanned_aerial_vehicle.battery": "Battery",
+    "item.unmanned_aerial_vehicle.remote_controller": "Remote Controller",
+    "item.unmanned_aerial_vehicle.console": "Console",
+    "block.unmanned_aerial_vehicle.example_block": "Example Block",
+    "block.unmanned_aerial_vehicle.charging_station": "Charging Station",
+    "block.unmanned_aerial_vehicle.return_station": "Return Station",
+    "message.unmanned_aerial_vehicle.setup": "Unmanned Aerial Vehicle Mod setup"
+}

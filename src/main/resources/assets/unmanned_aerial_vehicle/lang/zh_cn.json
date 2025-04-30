@@ -1,0 +1,11 @@
+{
+    "item.unmanned_aerial_vehicle.example_item": "示例物品",
+    "item.unmanned_aerial_vehicle.drone": "无人机",
+    "item.unmanned_aerial_vehicle.battery": "电池",
+    "item.unmanned_aerial_vehicle.remote_controller": "遥控器",
+    "item.unmanned_aerial_vehicle.console": "控制台",
+    "block.unmanned_aerial_vehicle.example_block": "示例方块",
+    "block.unmanned_aerial_vehicle.charging_station": "充电站",
+    "block.unmanned_aerial_vehicle.return_station": "返航台",
+    "message.unmanned_aerial_vehicle.setup": "无人机模组已设置"
+}

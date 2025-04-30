@@ -1,0 +1,12 @@
+{
+  "animations": {
+    "idle": {
+      "loop": true,
+      "bones": {
+        "body": {
+          "rotation": [0, 0, 0]
+        }
+      }
+    }
+  }
+}
