@@ -6,20 +6,24 @@ on:
   pull_request:
     branches: [ "main", "master" ]
   workflow_dispatch:
+    inputs:
+      skip_tests:
+        description: '跳过测试步骤'
+        required: false
+        default: 'false'
+        type: boolean
 
 jobs:
   smart-build:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest]
         java: [17]
-        exclude:
+        include:
           - os: windows-latest
-            java: 8
-
-    env:
-      CACHE_KEY: forge-mod-${{ hashFiles('build.gradle', 'settings.gradle', 'gradle.properties') }}
+            java: 17
+            exclude: true
 
     steps:
     # 步骤1：代码检出
@@ -33,16 +37,17 @@ jobs:
       shell: bash
       run: |
         # 解析mods.toml
-        MODID=$(grep -Po 'modId\s*=\s*"\K[^"]+' src/main/resources/META-INF/mods.toml | head -1)
-        VERSION=$(grep -Po 'version\s*=\s*"\K[^"]+' src/main/resources/META-INF/mods.toml | head -1)
+        MODID=$(grep -Po 'modId\s*=\s*"\K[^"]+' src/main/resources/META-INF/mods.toml | head -1 || echo "unnamed")
+        VERSION=$(grep -Po 'version\s*=\s*"\K[^"]+' src/main/resources/META-INF/mods.toml | head -1 || echo "0.0.0")
         
         # 解析build.gradle
-        FORGE_VERSION=$(grep -Po 'minecraft.*version.*\K[\d\.-]+' build.gradle | head -1)
+        FORGE_VERSION=$(grep -Po 'minecraft.*version.*\K[\d\.-]+' build.gradle | head -1 || echo "1.16.5-36.2.39")
         MC_VERSION=$(echo "$FORGE_VERSION" | cut -d'-' -f1)
         
         # 检测关键组件
         HAS_MIXIN=$(grep -q "mixin" build.gradle && echo "true" || echo "false")
         HAS_GECKOLIB=$(grep -q "geckolib" build.gradle && echo "true" || echo "false")
+        HAS_TEST=$(ls src/test/java/ >/dev/null 2>&1 && echo "true" || echo "false")
         
         # 输出变量
         echo "modid=$MODID" >> $GITHUB_OUTPUT
@@ -51,7 +56,8 @@ jobs:
         echo "forge_version=$FORGE_VERSION" >> $GITHUB_OUTPUT
         echo "has_mixin=$HAS_MIXIN" >> $GITHUB_OUTPUT
         echo "has_geckolib=$HAS_GECKOLIB" >> $GITHUB_OUTPUT
-        echo "build_date=$(date +'%Y-%m-%d %H:%M:%S')" >> $GITHUB_OUTPUT
+        echo "has_test=$HAS_TEST" >> $GITHUB_OUTPUT
+        echo "build_date=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
 
     # 步骤3：环境配置
     - name: Setup JDK
@@ -61,43 +67,46 @@ jobs:
         distribution: 'temurin'
         cache: 'gradle'
 
-    # 步骤4：缓存优化
+    # 步骤4：缓存优化（正确使用hashFiles的位置）
     - name: Gradle Cache
       uses: actions/cache@v3
       with:
         path: |
           ~/.gradle/caches
           ~/.gradle/wrapper
-        key: ${{ env.CACHE_KEY }}
+          ~/.gradle/daemon
+        key: ${{ runner.os }}-gradle-${{ hashFiles('build.gradle', 'settings.gradle', 'gradle.properties') }}
+        restore-keys: |
+          ${{ runner.os }}-gradle-
 
     # 步骤5：跨平台构建
     - name: Build Mod
       shell: bash
       run: |
-        # 设置构建参数
-        BUILD_ARGS="build --stacktrace --no-daemon"
+        # 基础构建命令
+        BUILD_ARGS="build"
         
-        # 根据检测结果调整参数
-        if [ "${{ steps.config.outputs.has_mixin }}" = "true" ]; then
-          BUILD_ARGS="$BUILD_ARGS -Pmixin.refMap=true"
-          echo "Mixin support enabled"
-        fi
+        # 条件参数
+        [ "${{ inputs.skip_tests }}" = "true" ] && BUILD_ARGS="$BUILD_ARGS -x test"
+        [ "${{ steps.config.outputs.has_mixin }}" = "true" ] && BUILD_ARGS="$BUILD_ARGS -Pmixin.refMap=true"
         
+        # 执行构建
         if [ "${{ runner.os }}" = "Windows" ]; then
-          ./gradlew.bat $BUILD_ARGS
+          ./gradlew.bat $BUILD_ARGS --no-daemon --stacktrace
         else
           chmod +x gradlew
-          ./gradlew $BUILD_ARGS
+          ./gradlew $BUILD_ARGS --no-daemon --stacktrace
         fi
 
         # 验证输出
-        if ! ls build/libs/${{ steps.config.outputs.modid }}*.jar 1> /dev/null 2>&1; then
-          echo "::error::Build failed: No output JAR found"
+        if ! ls build/libs/${{ steps.config.outputs.modid }}*.jar >/dev/null 2>&1; then
+          echo "::error::构建失败：未生成JAR文件"
           exit 1
         fi
 
-    # 步骤6：产物处理
+    # 步骤6：上传构建产物
     - name: Upload Artifacts
+      if: success()
       uses: actions/upload-artifact@v3
       with:
         name: ${{ steps.config.outputs.modid }}-${{ steps.config.outputs.version }}-${{ runner.os }}
@@ -106,34 +115,48 @@ jobs:
           build/libs/*.json
           build/libs/*.md
         if-no-files-found: error
-        retention-days: 7
+        retention-days: 3
 
-    # 步骤7：自动发布
+    # 步骤7：自动发布（标签触发时）
     - name: Create Release
-      if: startsWith(github.ref, 'refs/tags/')
+      if: success() && startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v1
       with:
         files: build/libs/${{ steps.config.outputs.modid }}*.jar
         tag_name: v${{ steps.config.outputs.version }}
         body: |
-          ### 自动生成发布说明
-          **ModID:** `${{ steps.config.outputs.modid }}`  
-          **版本:** ${{ steps.config.outputs.version }}  
+          ### 版本发布说明
+          **模组ID:** `${{ steps.config.outputs.modid }}`  
+          **版本号:** ${{ steps.config.outputs.version }}  
           **Minecraft:** ${{ steps.config.outputs.mc_version }}  
           **Forge:** ${{ steps.config.outputs.forge_version }}  
-          
-          **构建环境:**
-          - 系统: ${{ runner.os }}
-          - JDK: ${{ matrix.java }}
-          - 构建时间: ${{ steps.config.outputs.build_date }}
 
-          **检测到组件:**
-          - Mixin: ${{ steps.config.outputs.has_mixin }}
-          - GeckoLib: ${{ steps.config.outputs.has_geckolib }}
+          **构建环境:**  
+          - 操作系统: ${{ runner.os }}  
+          - JDK: Java ${{ matrix.java }}  
+          - 构建时间: ${{ steps.config.outputs.build_date }}  
 
-    # 步骤8：构建通知
-    - name: Build Status
+          **功能检测:**  
+          - Mixin支持: ${{ steps.config.outputs.has_mixin }}  
+          - GeckoLib支持: ${{ steps.config.outputs.has_geckolib }}  
+          - 单元测试: ${{ steps.config.outputs.has_test }}  
+
+          **下载链接:**  
+          ⬇️ 请从Artifacts部分下载构建产物
+
+    # 步骤8：构建状态通知
+    - name: Build Summary
       if: always()
       run: |
-        echo "::notice title=构建摘要::ModID: ${{ steps.config.outputs.modid }} | 版本: ${{ steps.config.outputs.version }}"
-        echo "::notice::Minecraft: ${{ steps.config.outputs.mc_version }} | Forge: ${{ steps.config.outputs.forge_version }}"
+        echo "::group::构建摘要"
+        echo "ModID: ${{ steps.config.outputs.modid }}"
+        echo "版本: ${{ steps.config.outputs.version }}"
+        echo "Minecraft: ${{ steps.config.outputs.mc_version }}"
+        echo "Forge: ${{ steps.config.outputs.forge_version }}"
+        echo "构建系统: ${{ runner.os }}"
+        echo "Java版本: ${{ matrix.java }}"
+        echo "::endgroup::"
+
+        if [ "${{ job.status }}" != "success" ]; then
+          echo "::warning::构建失败！请检查日志"
+        fi
