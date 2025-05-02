@@ -15,7 +15,6 @@ on:
 
 env:
   GRADLE_OPTS: "-Dorg.gradle.daemon=false -Xmx2g"
-  JAVA_HOME: ${{ matrix.java-home }}
 
 jobs:
   build:
@@ -32,7 +31,7 @@ jobs:
             java-home: /usr/lib/jvm/temurin-17-jdk-amd64
           - os: windows-latest
             java: 17
-            java-home: C:\hostedtoolcache\windows\Java_Temurin-Hotspot_jdk\17.0.x\x64
+            java-home: C:\hostedtoolcache\windows\Java_Temurin-Hotspot_jdk\17.0.8+8\x64
 
     steps:
     # 步骤1：检出代码
@@ -41,7 +40,7 @@ jobs:
       with:
         fetch-depth: 0
 
-    # 步骤2：设置Java环境（显式指定路径）
+    # 步骤2：设置Java环境
     - name: Setup Java
       uses: actions/setup-java@v4
       with:
@@ -54,6 +53,7 @@ jobs:
     - name: Verify Java Installation
       shell: bash
       run: |
+        JAVA_HOME=${{ matrix.java-home }}
         echo "JAVA_HOME: $JAVA_HOME"
         if [ ! -d "$JAVA_HOME" ]; then
           echo "::error::Java home directory not found: $JAVA_HOME"
@@ -61,34 +61,26 @@ jobs:
         fi
         "$JAVA_HOME/bin/java" -version
 
-    # 步骤4：配置Gradle使用正确的Java路径
+    # 步骤4：配置Gradle
     - name: Configure Gradle
       shell: bash
       run: |
-        # 清理可能存在的错误配置
         sed -i '/org.gradle.java.home/d' gradle.properties || true
-        
-        # Windows系统处理
-        if [[ "$RUNNER_OS" == "Windows" ]]; then
-          echo "org.gradle.java.home=$JAVA_HOME" >> gradle.properties
-          # 转换路径格式
-          JAVA_HOME_WIN=$(cygpath -w "$JAVA_HOME")
-          echo "Using Java home: $JAVA_HOME_WIN"
-        else
-          echo "org.gradle.java.home=$JAVA_HOME" >> gradle.properties
-        fi
+        echo "org.gradle.java.home=${{ matrix.java-home }}" >> gradle.properties
 
     # 步骤5：执行构建
     - name: Run Gradle build
       shell: bash
       run: |
-        # 确保gradlew使用正确的Java路径
-        echo "::group::Environment Variables"
-        env | sort
-        echo "::endgroup::"
-
         ./gradlew build \
           --no-daemon \
           --stacktrace \
           --info \
-         
+          ${{ inputs.skip_tests && '-x test' || '' }}
+
+    # 步骤6：上传产物
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: mod-${{ runner.os }}
+        path: build/libs/*.jar
