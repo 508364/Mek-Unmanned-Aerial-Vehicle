@@ -1,4 +1,4 @@
-name: Forge Mod CI
+name: Linux Build CI
 
 on:
   push:
@@ -15,24 +15,13 @@ on:
 
 env:
   GRADLE_OPTS: "-Dorg.gradle.daemon=false -Xmx2g"
+  JAVA_HOME: /usr/lib/jvm/temurin-17-jdk-amd64
 
 jobs:
-  build:
-    name: Build (${{ matrix.os }}, Java ${{ matrix.java }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-        java: [17]
-        include:
-          - os: ubuntu-latest
-            java: 17
-            java-home: /usr/lib/jvm/temurin-17-jdk-amd64
-          - os: windows-latest
-            java: 17
-            java-home: C:\hostedtoolcache\windows\Java_Temurin-Hotspot_jdk\17.0.8+8\x64
-
+  linux-build:
+    name: Linux Build (Java 17)
+    runs-on: ubuntu-latest
+    
     steps:
     # 步骤1：检出代码
     - name: Checkout repository
@@ -40,20 +29,19 @@ jobs:
       with:
         fetch-depth: 0
 
-    # 步骤2：设置Java环境
+    # 步骤2：设置Java环境（使用官方Temurin发行版）
     - name: Setup Java
       uses: actions/setup-java@v4
       with:
-        java-version: ${{ matrix.java }}
+        java-version: 17
         distribution: 'temurin'
         cache: 'gradle'
         check-latest: true
 
-    # 步骤3：验证Java路径
+    # 步骤3：验证Java安装
     - name: Verify Java Installation
       shell: bash
       run: |
-        JAVA_HOME=${{ matrix.java-home }}
         echo "JAVA_HOME: $JAVA_HOME"
         if [ ! -d "$JAVA_HOME" ]; then
           echo "::error::Java home directory not found: $JAVA_HOME"
@@ -61,14 +49,23 @@ jobs:
         fi
         "$JAVA_HOME/bin/java" -version
 
-    # 步骤4：配置Gradle
-    - name: Configure Gradle
-      shell: bash
-      run: |
-        sed -i '/org.gradle.java.home/d' gradle.properties || true
-        echo "org.gradle.java.home=${{ matrix.java-home }}" >> gradle.properties
+    # 步骤4：配置Gradle缓存
+    - name: Cache Gradle
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+        key: ${{ runner.os }}-gradle-${{ hashFiles('**/build.gradle', '**/gradle.properties') }}
+        restore-keys: |
+          ${{ runner.os }}-gradle-
 
-    # 步骤5：执行构建
+    # 步骤5：确保gradlew可执行
+    - name: Make gradlew executable
+      shell: bash
+      run: chmod +x gradlew
+
+    # 步骤6：执行构建
     - name: Run Gradle build
       shell: bash
       run: |
@@ -78,9 +75,26 @@ jobs:
           --info \
           ${{ inputs.skip_tests && '-x test' || '' }}
 
-    # 步骤6：上传产物
+    # 步骤7：上传构建产物
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: mod-${{ runner.os }}
-        path: build/libs/*.jar
+        name: linux-build-artifacts
+        path: |
+          build/libs/*.jar
+          build/reports/**
+        if-no-files-found: error
+        retention-days: 7
+
+    # 步骤8：创建Release（仅标签触发）
+    - name: Create Release
+      if: success() && startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v2
+      with:
+        files: build/libs/*.jar
+        tag_name: v${{ github.ref_name }}
+        body: |
+          ### Linux Build Summary
+          **Build OS:** ${{ runner.os }}
+          **Java Version:** 17 (Temurin)
+          **Build Time:** $(date -u +'%Y-%m-%d %H:%M:%S UTC')
