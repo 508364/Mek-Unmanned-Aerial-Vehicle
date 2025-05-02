@@ -7,7 +7,7 @@ on:
     branches: [ "main", "master" ]
 
 env:
-  GRADLE_OPTS: "-Dorg.gradle.daemon=false -Xmx2g"
+  GRADLE_OPTS: "-Dorg.gradle.daemon=false -Xmx4g -Xss4g"
 
 jobs:
   build:
